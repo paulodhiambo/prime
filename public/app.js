@@ -123,15 +123,28 @@ function showToast(title, message, type = 'success') {
   }, 4500);
 }
 
+/* ---------------- API Fetch with Dual Auth (Cookie + Bearer Token) ---------------- */
+function apiFetch(url, options = {}) {
+  const opts = { ...options };
+  opts.headers = { ...(options.headers || {}) };
+  const token = sessionStorage.getItem('primenet_token');
+  if (token && !opts.headers['Authorization']) {
+    opts.headers['Authorization'] = `Bearer ${token}`;
+  }
+  opts.credentials = opts.credentials || 'same-origin';
+  return fetch(url, opts);
+}
+
 /* ---------------- Authentication ---------------- */
 async function checkAuth() {
   try {
-    const res = await fetch('/api/auth/me');
+    const res = await apiFetch('/api/auth/me');
     const data = await res.json();
     if (data.authenticated && data.user) {
       currentUser = data.user;
     } else {
       currentUser = null;
+      sessionStorage.removeItem('primenet_token');
     }
   } catch (err) {
     console.warn('Auth check error:', err);
@@ -198,6 +211,7 @@ async function submitLogin() {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({ username, password })
     });
 
@@ -210,6 +224,9 @@ async function submitLogin() {
       return;
     }
 
+    if (data.token) {
+      sessionStorage.setItem('primenet_token', data.token);
+    }
     currentUser = data.user;
     updateAuthUI();
     closeLoginModal();
@@ -232,10 +249,11 @@ async function submitLogin() {
 
 async function submitLogout() {
   try {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await apiFetch('/api/auth/logout', { method: 'POST' });
   } catch (err) {
     console.error('Logout error:', err);
   }
+  sessionStorage.removeItem('primenet_token');
   currentUser = null;
   ISSUES = [];
   updateAuthUI();
@@ -268,7 +286,7 @@ async function switchView(viewName) {
 async function loadRecentIssues() {
   if (!currentUser) return;
   try {
-    const res = await fetch('/api/issues/recent');
+    const res = await apiFetch('/api/issues/recent');
     if (res.status === 401) return;
     if (!res.ok) throw new Error('Failed to fetch recent issues');
     const data = await res.json();
@@ -302,9 +320,10 @@ async function loadDashboardData() {
     await loadRecentIssues();
 
     // Fetch full issues register
-    const issuesRes = await fetch('/api/issues');
+    const issuesRes = await apiFetch('/api/issues');
     if (issuesRes.status === 401) {
       currentUser = null;
+      sessionStorage.removeItem('primenet_token');
       updateAuthUI();
       openLoginModal('dash');
       return;
@@ -313,7 +332,7 @@ async function loadDashboardData() {
     ISSUES = issuesData.issues || [];
 
     // Fetch aggregate statistics
-    const statsRes = await fetch('/api/stats');
+    const statsRes = await apiFetch('/api/stats');
     if (statsRes.ok) {
       const stats = await statsRes.json();
       const total = stats.total || 0;
@@ -365,7 +384,7 @@ async function submitIssue() {
   submitBtn.textContent = 'Saving to SQLite...';
 
   try {
-    const res = await fetch('/api/issues', {
+    const res = await apiFetch('/api/issues', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -594,7 +613,7 @@ function goToPage(page) {
 /* ---------------- Issue Status Update ---------------- */
 async function updateStatus(id, newStatus) {
   try {
-    const res = await fetch(`/api/issues/${id}/status`, {
+    const res = await apiFetch(`/api/issues/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
@@ -670,7 +689,7 @@ async function saveModalResolution() {
   btn.textContent = 'Saving...';
 
   try {
-    const res = await fetch(`/api/issues/${currentSelectedIssueId}`, {
+    const res = await apiFetch(`/api/issues/${currentSelectedIssueId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, solution, resolutionDate })

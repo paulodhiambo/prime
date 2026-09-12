@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 // Ensure data directory exists
@@ -369,9 +370,18 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Helper to extract session token from cookies OR Authorization header
+function getTokenFromReq(req) {
+  let token = req.cookies ? req.cookies.primenet_session : null;
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.slice(7).trim();
+  }
+  return token;
+}
+
 // Authentication Middleware
 function requireAuth(req, res, next) {
-  const token = req.cookies.primenet_session;
+  const token = getTokenFromReq(req);
   if (!token) {
     return res.status(401).json({ error: 'Authentication required to access the register & analysis desk' });
   }
@@ -385,7 +395,7 @@ function requireAuth(req, res, next) {
   `).get(token, now);
 
   if (!session) {
-    res.clearCookie('primenet_session');
+    res.clearCookie('primenet_session', { path: '/' });
     return res.status(401).json({ error: 'Session expired or invalid. Please log in again.' });
   }
 
@@ -401,7 +411,7 @@ function requireAuth(req, res, next) {
 // ==================== AUTH ROUTES ====================
 
 app.get('/api/auth/me', (req, res) => {
-  const token = req.cookies.primenet_session;
+  const token = getTokenFromReq(req);
   if (!token) {
     return res.json({ authenticated: false, user: null });
   }
@@ -415,7 +425,7 @@ app.get('/api/auth/me', (req, res) => {
   `).get(token, now);
 
   if (!session) {
-    res.clearCookie('primenet_session');
+    res.clearCookie('primenet_session', { path: '/' });
     return res.json({ authenticated: false, user: null });
   }
 
@@ -465,15 +475,19 @@ app.post('/api/auth/login', (req, res) => {
   db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
     .run(token, user.id, expiresAt);
 
+  // Set cookie with path / and only secure when actually on HTTPS
+  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
   res.cookie('primenet_session', token, {
     httpOnly: true,
     sameSite: 'lax',
+    path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    secure: process.env.NODE_ENV === 'production'
+    secure: Boolean(isHttps)
   });
 
   res.json({
     ok: true,
+    token, // Provided for client fallback in Authorization header
     user: {
       id: user.id,
       username: user.username,
@@ -484,11 +498,11 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  const token = req.cookies.primenet_session;
+  const token = getTokenFromReq(req);
   if (token) {
     db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
   }
-  res.clearCookie('primenet_session');
+  res.clearCookie('primenet_session', { path: '/' });
   res.json({ ok: true });
 });
 
