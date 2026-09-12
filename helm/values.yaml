@@ -3,7 +3,7 @@ replicaCount: 2
 image:
   repository: ghcr.io/paulodhiambo/prime
   pullPolicy: IfNotPresent
-  tag: dbb04ed
+  tag: 6371f5c
 
 service:
   type: ClusterIP
