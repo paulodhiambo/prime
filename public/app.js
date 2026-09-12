@@ -124,12 +124,6 @@ function closeLoginModal() {
   document.getElementById('login-modal').classList.remove('active');
 }
 
-function quickFillCreds(username, password) {
-  document.getElementById('login-username').value = username;
-  document.getElementById('login-password').value = password;
-  submitLogin();
-}
-
 async function submitLogin() {
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value;

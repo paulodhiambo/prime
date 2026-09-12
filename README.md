@@ -18,9 +18,6 @@ A web-based issue tracking and analytics platform for PrimeNet Internet Banking.
 3. **Authentication Gateway for Register & Analysis**:
    - The **"Register & analysis"** view and its underlying APIs (`/api/issues`, `/api/stats`, `/api/issues/:id/status`) require authentication.
    - If an unauthenticated user clicks the tab, an authentication modal appears.
-   - Built-in quick-fill buttons for instant demo access:
-     - **Admin**: `admin` / `admin123`
-     - **Analyst**: `analyst` / `prime2026`
    - Passwords hashed using cryptographic `scrypt` with individual salt per user.
 
 4. **Analytics & Register Dashboard**:
