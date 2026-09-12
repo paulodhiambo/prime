@@ -68,6 +68,51 @@ function verifyPassword(password, salt, storedHash) {
   return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
 }
 
+// Clean up expired sessions on startup and periodically (every hour)
+function cleanExpiredSessions() {
+  try {
+    const deleted = db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
+    if (deleted.changes > 0) {
+      console.log(`Cleaned up ${deleted.changes} expired session(s).`);
+    }
+  } catch (err) {
+    console.error('Error cleaning expired sessions:', err);
+  }
+}
+cleanExpiredSessions();
+setInterval(cleanExpiredSessions, 60 * 60 * 1000);
+
+// Basic in-memory rate limiter for login attempts
+const loginAttempts = new Map();
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_WINDOW = 10 * 60 * 1000; // 10 minutes
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+  if (!record) return { allowed: true };
+  if (now > record.resetTime) {
+    loginAttempts.delete(ip);
+    return { allowed: true };
+  }
+  if (record.count >= MAX_ATTEMPTS) {
+    const waitSecs = Math.ceil((record.resetTime - now) / 1000);
+    return { allowed: false, waitSecs };
+  }
+  return { allowed: true };
+}
+
+function recordFailedAttempt(ip) {
+  const now = Date.now();
+  const record = loginAttempts.get(ip) || { count: 0, resetTime: now + LOCKOUT_WINDOW };
+  record.count += 1;
+  loginAttempts.set(ip, record);
+}
+
+function clearFailedAttempts(ip) {
+  loginAttempts.delete(ip);
+}
+
 // Seed Users if empty
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
 if (userCount === 0) {
@@ -386,6 +431,14 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const limitCheck = checkRateLimit(ip);
+  if (!limitCheck.allowed) {
+    return res.status(429).json({
+      error: `Too many failed login attempts. Please try again in ${limitCheck.waitSecs} seconds.`
+    });
+  }
+
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
@@ -393,13 +446,17 @@ app.post('/api/auth/login', (req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim().toLowerCase());
   if (!user) {
+    recordFailedAttempt(ip);
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
   const valid = verifyPassword(password, user.salt, user.password_hash);
   if (!valid) {
+    recordFailedAttempt(ip);
     return res.status(401).json({ error: 'Invalid username or password' });
   }
+
+  clearFailedAttempts(ip);
 
   // Create session (7 days validity)
   const token = crypto.randomBytes(32).toString('hex');
@@ -581,29 +638,60 @@ app.get('/api/issues', requireAuth, (req, res) => {
   }
 });
 
-// Protected: Update status and resolution
-app.patch('/api/issues/:id/status', requireAuth, (req, res) => {
+// Protected: Get single issue details
+app.get('/api/issues/:id', requireAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const row = db.prepare('SELECT * FROM issues WHERE id = ?').get(id);
+    if (!row) {
+      return res.status(404).json({ error: 'Issue not found' });
+    }
+    res.json({
+      ok: true,
+      issue: {
+        id: row.id,
+        dateReceived: row.date_received,
+        channel: row.channel,
+        customerType: row.customer_type,
+        customerName: row.customer_name,
+        accountNumber: row.account_number,
+        branch: row.branch,
+        category: row.category,
+        type: row.type,
+        details: row.details,
+        status: row.status,
+        solution: row.solution,
+        loggedBy: row.logged_by,
+        resolutionDate: row.resolution_date,
+        createdAt: row.created_at
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching issue:', err);
+    res.status(500).json({ error: 'Failed to fetch issue details' });
+  }
+});
+
+// Protected: Update status and/or resolution
+app.patch(['/api/issues/:id/status', '/api/issues/:id'], requireAuth, (req, res) => {
   try {
     const { id } = req.params;
     const { status, solution } = req.body || {};
-
-    if (!status) {
-      return res.status(400).json({ error: 'Status is required' });
-    }
 
     const existing = db.prepare('SELECT * FROM issues WHERE id = ?').get(id);
     if (!existing) {
       return res.status(404).json({ error: 'Issue not found' });
     }
 
-    const resolutionDate = status === 'Resolved' ? (existing.resolution_date || new Date().toISOString().slice(0, 10)) : '';
-    const newSolution = solution !== undefined ? solution : existing.solution;
+    const newStatus = status !== undefined ? status : existing.status;
+    const newSolution = solution !== undefined ? solution.trim() : existing.solution;
+    const resolutionDate = newStatus === 'Resolved' ? (existing.resolution_date || new Date().toISOString().slice(0, 10)) : '';
 
     db.prepare(`
       UPDATE issues
       SET status = ?, solution = ?, resolution_date = ?
       WHERE id = ?
-    `).run(status, newSolution, resolutionDate, id);
+    `).run(newStatus, newSolution, resolutionDate, id);
 
     const updated = db.prepare('SELECT * FROM issues WHERE id = ?').get(id);
     res.json({
@@ -616,8 +704,8 @@ app.patch('/api/issues/:id/status', requireAuth, (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error updating status:', err);
-    res.status(500).json({ error: 'Failed to update issue status' });
+    console.error('Error updating issue:', err);
+    res.status(500).json({ error: 'Failed to update issue' });
   }
 });
 
@@ -687,6 +775,22 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`PrimeNet Issue Desk running at http://localhost:${PORT}`);
 });
+
+function gracefulShutdown(signal) {
+  console.log(`\nReceived ${signal}. Gracefully shutting down...`);
+  server.close(() => {
+    try {
+      db.close();
+      console.log('SQLite database connection closed.');
+    } catch (err) {
+      console.error('Error closing SQLite database:', err);
+    }
+    process.exit(0);
+  });
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

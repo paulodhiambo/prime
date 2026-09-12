@@ -27,10 +27,17 @@ const STATUS_COLORS = {
   'Not Confirmed': '#5B6B7A'
 };
 
+/* ---------------- Application State ---------------- */
 let currentUser = null;
 let ISSUES = [];
 let charts = {};
 let pendingViewAfterLogin = 'dash';
+
+let currentSort = { column: 'dateReceived', order: 'desc' };
+let currentPage = 1;
+let pageSize = 10;
+let activeQuickFilter = 'all';
+let currentSelectedIssueId = null;
 
 /* ---------------- App Initialization ---------------- */
 document.addEventListener('DOMContentLoaded', async () => {
@@ -45,9 +52,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check login state first
   await checkAuth();
 
-  // Escape key closes modal
+  // Escape key closes modals
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeLoginModal();
+    if (e.key === 'Escape') {
+      closeLoginModal();
+      closeIssueModal();
+    }
   });
 });
 
@@ -65,6 +75,52 @@ function updateTypePreview() {
   const cat = document.getElementById('f-category').value;
   const found = CATEGORIES.find(c => c.name === cat);
   document.getElementById('type-pill').textContent = found ? found.type : '—';
+}
+
+function updateCharCount(val) {
+  const count = (val || '').length;
+  document.getElementById('details-count').textContent = `${count} character${count === 1 ? '' : 's'}`;
+}
+
+function resetIssueForm() {
+  document.getElementById('issue-form').reset();
+  document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('resolution-row').style.display = 'none';
+  updateTypePreview();
+  updateCharCount('');
+}
+
+/* ---------------- Toast Notifications ---------------- */
+function showToast(title, message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <div class="toast-content">
+      <div class="toast-title">${escapeHtml(title)}</div>
+      <div class="toast-msg">${escapeHtml(message)}</div>
+    </div>
+    <button class="toast-close" title="Dismiss">×</button>
+  `;
+
+  toast.querySelector('.toast-close').addEventListener('click', () => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px) scale(0.95)';
+    setTimeout(() => toast.remove(), 200);
+  });
+
+  container.appendChild(toast);
+
+  // Auto remove after 4.5 seconds
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(10px) scale(0.95)';
+      setTimeout(() => toast.remove(), 200);
+    }
+  }, 4500);
 }
 
 /* ---------------- Authentication ---------------- */
@@ -159,6 +215,7 @@ async function submitLogin() {
     closeLoginModal();
     submitBtn.disabled = false;
     btnText.textContent = 'Sign in to Access Register';
+    showToast('Signed In', `Welcome back, ${currentUser.displayName}`);
 
     // Switch to target view
     if (pendingViewAfterLogin === 'dash') {
@@ -182,6 +239,7 @@ async function submitLogout() {
   currentUser = null;
   ISSUES = [];
   updateAuthUI();
+  showToast('Signed Out', 'You have been signed out of the analysis desk.');
   switchView('log');
 }
 
@@ -220,12 +278,12 @@ async function loadRecentIssues() {
     document.getElementById('recent-count').textContent = data.total ? `(${data.total} total)` : '';
     
     if (!data.issues || data.issues.length === 0) {
-      list.innerHTML = '<div class="empty-note">No issues logged yet. The first one you record will show here.</div>';
+      list.innerHTML = '<div class="empty-note">No issues logged yet. Newly logged incidents will appear here.</div>';
       return;
     }
 
     list.innerHTML = data.issues.map(i => `
-      <div class="recent-item">
+      <div class="recent-item" onclick="openIssueModal('${i.id}')" style="cursor:pointer;" title="Click to view details">
         <div class="top">
           <span class="cust">${escapeHtml(i.customerName)}</span>
           <span class="chip ${i.status.replace(/\s+/g, '-')}">${escapeHtml(i.status)}</span>
@@ -258,10 +316,20 @@ async function loadDashboardData() {
     const statsRes = await fetch('/api/stats');
     if (statsRes.ok) {
       const stats = await statsRes.json();
-      document.getElementById('stat-total').textContent = stats.total;
-      document.getElementById('stat-open').textContent = stats.open;
-      document.getElementById('stat-resolved').textContent = stats.resolved;
+      const total = stats.total || 0;
+      const open = stats.open || 0;
+      const resolved = stats.resolved || 0;
+
+      document.getElementById('stat-total').textContent = total;
+      document.getElementById('stat-open').textContent = open;
+      document.getElementById('stat-resolved').textContent = resolved;
       document.getElementById('stat-topcat').textContent = stats.topCategory || '—';
+
+      // Percentages badges
+      const openPct = total > 0 ? Math.round((open / total) * 100) : 0;
+      const resolvedPct = total > 0 ? Math.round((resolved / total) * 100) : 0;
+      document.getElementById('stat-open-pct').textContent = `${openPct}%`;
+      document.getElementById('stat-resolved-pct').textContent = `${resolvedPct}%`;
 
       drawCategoryChart(stats.categories || {});
       drawStatusChart(stats.statuses || {});
@@ -289,7 +357,7 @@ async function submitIssue() {
   const loggedBy = document.getElementById('f-loggedby').value.trim();
 
   if (!custname || !details) {
-    alert('Please fill in customer name and issue details.');
+    showToast('Missing Fields', 'Please fill in customer name and issue details.', 'error');
     return;
   }
 
@@ -316,22 +384,23 @@ async function submitIssue() {
       })
     });
 
-    if (!res.ok) {
-      const err = await res.json();
-      alert('Error saving issue: ' + (err.error || 'Unknown error'));
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      showToast('Error', data.error || 'Failed to save issue.', 'error');
       return;
     }
 
-    // Reset Form
-    document.getElementById('issue-form').reset();
-    document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
-    document.getElementById('resolution-row').style.display = 'none';
-    updateTypePreview();
+    const createdId = data.issue ? data.issue.id : 'PN-RECORD';
 
-    // Show Confirmation Message
+    // Reset Form
+    resetIssueForm();
+
+    // Show Confirmation Message & Toast
     const msg = document.getElementById('confirm-msg');
     msg.style.display = 'block';
     setTimeout(() => { msg.style.display = 'none'; }, 3500);
+
+    showToast('Issue Recorded', `Incident ${createdId} recorded into central SQLite database.`, 'success');
 
     // Refresh protected dashboard data if authenticated and on dashboard
     if (currentUser && document.getElementById('view-dash').classList.contains('active')) {
@@ -339,40 +408,132 @@ async function submitIssue() {
     }
   } catch (err) {
     console.error('Submit issue error:', err);
-    alert('Failed to connect to server to record issue.');
+    showToast('Connection Error', 'Failed to connect to server to record issue.', 'error');
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = 'Record issue';
   }
 }
 
-/* ---------------- Table & Filters ---------------- */
+/* ---------------- Table, Sorting & Pagination ---------------- */
+function onSearchInput() {
+  currentPage = 1;
+  renderTable();
+}
+
+function onFilterChange() {
+  currentPage = 1;
+  renderTable();
+}
+
+function setQuickFilter(type) {
+  activeQuickFilter = type;
+  document.querySelectorAll('.pill-filter').forEach(btn => btn.classList.remove('active'));
+  const btn = document.getElementById(`filter-pill-${type}`);
+  if (btn) btn.classList.add('active');
+  currentPage = 1;
+  renderTable();
+}
+
+function toggleSort(column) {
+  if (currentSort.column === column) {
+    currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+  } else {
+    currentSort.column = column;
+    currentSort.order = 'asc';
+  }
+  updateSortIndicators();
+  renderTable();
+}
+
+function updateSortIndicators() {
+  ['id', 'dateReceived', 'customerName', 'branch', 'category', 'status'].forEach(col => {
+    const icon = document.getElementById(`sort-${col}`);
+    const th = icon ? icon.closest('th') : null;
+    if (icon && th) {
+      if (currentSort.column === col) {
+        th.classList.add('active');
+        icon.textContent = currentSort.order === 'asc' ? '▲' : '▼';
+      } else {
+        th.classList.remove('active');
+        icon.textContent = '⇅';
+      }
+    }
+  });
+}
+
+function changePage(delta) {
+  currentPage += delta;
+  renderTable();
+}
+
+function changePageSize(val) {
+  pageSize = val === 'all' ? 999999 : parseInt(val, 10);
+  currentPage = 1;
+  renderTable();
+}
+
 function renderTable() {
   const search = document.getElementById('filt-search').value.toLowerCase().trim();
   const catF = document.getElementById('filt-category').value;
   const statF = document.getElementById('filt-status').value;
 
-  const rows = ISSUES.filter(i => {
+  // Filter rows
+  let rows = ISSUES.filter(i => {
+    // Dropdown filters
     if (catF && i.category !== catF) return false;
     if (statF && i.status !== statF) return false;
+
+    // Quick filter pills
+    if (activeQuickFilter === 'open' && i.status === 'Resolved') return false;
+    if (activeQuickFilter === 'resolved' && i.status !== 'Resolved') return false;
+
+    // Search query
     if (search) {
-      const haystack = `${i.id} ${i.customerName} ${i.branch} ${i.details} ${i.category} ${i.accountNumber || ''}`.toLowerCase();
+      const haystack = `${i.id} ${i.customerName} ${i.branch} ${i.details} ${i.category} ${i.accountNumber || ''} ${i.loggedBy || ''}`.toLowerCase();
       if (!haystack.includes(search)) return false;
     }
     return true;
   });
 
+  // Sort rows
+  rows.sort((a, b) => {
+    let valA = a[currentSort.column] || '';
+    let valB = b[currentSort.column] || '';
+    if (typeof valA === 'string') valA = valA.toLowerCase();
+    if (typeof valB === 'string') valB = valB.toLowerCase();
+    if (valA < valB) return currentSort.order === 'asc' ? -1 : 1;
+    if (valA > valB) return currentSort.order === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const totalFiltered = rows.length;
   const body = document.getElementById('table-body');
   const emptyNote = document.getElementById('table-empty');
 
-  if (rows.length === 0) {
+  if (totalFiltered === 0) {
     body.innerHTML = '';
     emptyNote.style.display = 'block';
+    document.getElementById('pagination-info').textContent = 'Showing 0 of 0 records';
+    document.getElementById('btn-prev-page').disabled = true;
+    document.getElementById('btn-next-page').disabled = true;
+    document.getElementById('pagination-pages').innerHTML = '';
     return;
   }
 
   emptyNote.style.display = 'none';
-  body.innerHTML = rows.map(i => `
+
+  // Pagination calculation
+  const totalPages = Math.ceil(totalFiltered / pageSize);
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const startIdx = (currentPage - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, totalFiltered);
+  const pagedRows = rows.slice(startIdx, endIdx);
+
+  // Render rows
+  body.innerHTML = pagedRows.map(i => `
     <tr>
       <td class="id-cell">${escapeHtml(i.id)}</td>
       <td>${escapeHtml(i.dateReceived)}</td>
@@ -385,7 +546,7 @@ function renderTable() {
         <span>${escapeHtml(i.category)}</span>
         <br><span class="type-pill" style="margin-top:2px;">${escapeHtml(i.type)}</span>
       </td>
-      <td class="details-cell" title="${escapeHtml(i.details)}">${escapeHtml(truncate(i.details, 90))}</td>
+      <td class="details-cell" title="${escapeHtml(i.details)}">${escapeHtml(truncate(i.details, 75))}</td>
       <td>
         <select class="status-select" onchange="updateStatus('${i.id}', this.value)">
           ${['Open', 'In Progress', 'Not Confirmed', 'Resolved'].map(s => `
@@ -394,12 +555,43 @@ function renderTable() {
         </select>
       </td>
       <td class="details-cell" title="${escapeHtml(i.solution || 'None recorded')}">
-        ${escapeHtml(truncate(i.solution || '—', 70))}
+        ${escapeHtml(truncate(i.solution || '—', 65))}
+      </td>
+      <td style="text-align:center;">
+        <button class="btn-view" onclick="openIssueModal('${i.id}')" title="View details and update resolution">View / Edit</button>
       </td>
     </tr>
   `).join('');
+
+  // Update Pagination Controls
+  document.getElementById('pagination-info').textContent = `Showing ${startIdx + 1} to ${endIdx} of ${totalFiltered} records`;
+  document.getElementById('btn-prev-page').disabled = currentPage <= 1;
+  document.getElementById('btn-next-page').disabled = currentPage >= totalPages;
+
+  // Page Numbers
+  const pagesContainer = document.getElementById('pagination-pages');
+  if (totalPages <= 6) {
+    pagesContainer.innerHTML = Array.from({ length: totalPages }, (_, idx) => {
+      const p = idx + 1;
+      return `<button class="page-num ${p === currentPage ? 'active' : ''}" onclick="goToPage(${p})">${p}</button>`;
+    }).join('');
+  } else {
+    pagesContainer.innerHTML = `
+      <button class="page-num ${currentPage === 1 ? 'active' : ''}" onclick="goToPage(1)">1</button>
+      ${currentPage > 3 ? '<span style="padding:4px 2px;">…</span>' : ''}
+      ${currentPage > 2 && currentPage < totalPages ? `<button class="page-num active">${currentPage}</button>` : ''}
+      ${currentPage < totalPages - 2 ? '<span style="padding:4px 2px;">…</span>' : ''}
+      <button class="page-num ${currentPage === totalPages ? 'active' : ''}" onclick="goToPage(${totalPages})">${totalPages}</button>
+    `;
+  }
 }
 
+function goToPage(page) {
+  currentPage = page;
+  renderTable();
+}
+
+/* ---------------- Issue Status Update ---------------- */
 async function updateStatus(id, newStatus) {
   try {
     const res = await fetch(`/api/issues/${id}/status`, {
@@ -410,7 +602,7 @@ async function updateStatus(id, newStatus) {
 
     if (!res.ok) {
       const err = await res.json();
-      alert('Failed to update status: ' + (err.error || 'Server error'));
+      showToast('Error', err.error || 'Server error updating status.', 'error');
       return;
     }
 
@@ -422,18 +614,97 @@ async function updateStatus(id, newStatus) {
       }
     }
 
-    // Refresh charts and counts
+    showToast('Status Updated', `Issue ${id} set to ${newStatus}.`, 'success');
     await loadDashboardData();
   } catch (err) {
     console.error('Status update error:', err);
-    alert('Failed to communicate with server.');
+    showToast('Network Error', 'Failed to communicate with server.', 'error');
+  }
+}
+
+/* ---------------- Issue Detail Modal ---------------- */
+function openIssueModal(id) {
+  const issue = ISSUES.find(i => i.id === id);
+  if (!issue) return;
+
+  currentSelectedIssueId = id;
+  document.getElementById('modal-issue-id').textContent = issue.id;
+  
+  const statusBadge = document.getElementById('modal-status-badge');
+  statusBadge.className = `chip ${issue.status.replace(/\s+/g, '-')}`;
+  statusBadge.textContent = issue.status;
+
+  document.getElementById('modal-meta-line').textContent = `Received on ${issue.dateReceived} via ${issue.channel}`;
+  document.getElementById('modal-cust-name').textContent = issue.customerName;
+  document.getElementById('modal-acc-num').textContent = issue.accountNumber || 'Not specified';
+  document.getElementById('modal-cust-type').textContent = issue.customerType;
+  document.getElementById('modal-branch').textContent = issue.branch;
+  document.getElementById('modal-channel').textContent = issue.channel;
+  document.getElementById('modal-logged-by').textContent = issue.loggedBy || 'Not recorded';
+
+  document.getElementById('modal-category').textContent = issue.category;
+  document.getElementById('modal-type-pill').textContent = issue.type;
+  document.getElementById('modal-details-text').textContent = issue.details;
+
+  document.getElementById('modal-status-select').value = issue.status;
+  document.getElementById('modal-res-date').value = issue.resolutionDate || '';
+  document.getElementById('modal-solution-text').value = issue.solution || '';
+
+  document.getElementById('issue-detail-modal').classList.add('active');
+}
+
+function closeIssueModal() {
+  document.getElementById('issue-detail-modal').classList.remove('active');
+  currentSelectedIssueId = null;
+}
+
+async function saveModalResolution() {
+  if (!currentSelectedIssueId) return;
+
+  const btn = document.getElementById('btn-save-modal');
+  const status = document.getElementById('modal-status-select').value;
+  const solution = document.getElementById('modal-solution-text').value.trim();
+  const resolutionDate = document.getElementById('modal-res-date').value;
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const res = await fetch(`/api/issues/${currentSelectedIssueId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, solution, resolutionDate })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      showToast('Save Failed', data.error || 'Could not update issue.', 'error');
+      return;
+    }
+
+    const item = ISSUES.find(i => i.id === currentSelectedIssueId);
+    if (item) {
+      item.status = status;
+      item.solution = solution;
+      item.resolutionDate = resolutionDate;
+    }
+
+    showToast('Updated', `Incident ${currentSelectedIssueId} resolution saved.`, 'success');
+    closeIssueModal();
+    await loadDashboardData();
+  } catch (err) {
+    console.error('Modal update error:', err);
+    showToast('Error', 'Failed to communicate with server.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
   }
 }
 
 /* ---------------- CSV Export ---------------- */
 function exportCsv() {
   if (!ISSUES.length) {
-    alert('No issues available to export.');
+    showToast('Notice', 'No issues available to export.', 'error');
     return;
   }
 
@@ -444,6 +715,8 @@ function exportCsv() {
   const filtered = ISSUES.filter(i => {
     if (catF && i.category !== catF) return false;
     if (statF && i.status !== statF) return false;
+    if (activeQuickFilter === 'open' && i.status === 'Resolved') return false;
+    if (activeQuickFilter === 'resolved' && i.status !== 'Resolved') return false;
     if (search) {
       const haystack = `${i.id} ${i.customerName} ${i.branch} ${i.details} ${i.category}`.toLowerCase();
       if (!haystack.includes(search)) return false;
@@ -463,16 +736,21 @@ function exportCsv() {
     i.solution || '', i.resolutionDate || '', i.loggedBy || '', i.createdAt || ''
   ]);
 
-  const csv = [headers, ...rows].map(r => r.map(csvEscape).join(',')).join('\n');
+  // UTF-8 BOM (\uFEFF) ensures Excel displays international/African names correctly
+  const csv = '\uFEFF' + [headers, ...rows].map(r => r.map(csvEscape).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+  const timeStr = now.toTimeString().slice(0, 5).replace(':', '');
   a.href = url;
-  a.download = `primenet-register-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `primenet-register-${dateStr}-${timeStr}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  showToast('Export Complete', `Exported ${filtered.length} records to CSV.`, 'success');
 }
 
 function csvEscape(v) {
@@ -511,7 +789,16 @@ function drawCategoryChart(counts) {
     options: {
       indexAxis: 'y',
       responsive: true,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#122338',
+          titleFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          bodyFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          padding: 8,
+          cornerRadius: 6
+        }
+      },
       scales: {
         x: { beginAtZero: true, ticks: { precision: 0 } },
         y: { ticks: { font: { size: 11, family: "'IBM Plex Sans', sans-serif" } } }
@@ -544,6 +831,13 @@ function drawStatusChart(counts) {
         legend: {
           position: 'bottom',
           labels: { boxWidth: 10, font: { size: 11, family: "'IBM Plex Sans', sans-serif" } }
+        },
+        tooltip: {
+          backgroundColor: '#122338',
+          titleFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          bodyFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          padding: 8,
+          cornerRadius: 6
         }
       },
       maintainAspectRatio: false,
@@ -574,7 +868,16 @@ function drawTrendChart(monthlyCounts) {
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#122338',
+          titleFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          bodyFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          padding: 8,
+          cornerRadius: 6
+        }
+      },
       scales: {
         y: { beginAtZero: true, ticks: { precision: 0 } },
         x: { ticks: { font: { size: 11, family: "'IBM Plex Sans', sans-serif" } } }
@@ -602,7 +905,16 @@ function drawBranchChart(branchCounts) {
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#122338',
+          titleFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          bodyFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+          padding: 8,
+          cornerRadius: 6
+        }
+      },
       scales: {
         y: { beginAtZero: true, ticks: { precision: 0 } },
         x: { ticks: { font: { size: 10.5, family: "'IBM Plex Sans', sans-serif" } } }

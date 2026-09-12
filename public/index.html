@@ -121,7 +121,8 @@
           <div class="field-row">
             <div class="field full">
               <label for="f-details">Issue details</label>
-              <textarea id="f-details" placeholder="Describe what the customer reported, in their own words if possible" required></textarea>
+              <textarea id="f-details" placeholder="Describe what the customer reported, in their own words if possible" oninput="updateCharCount(this.value)" required></textarea>
+              <div class="field-meta"><span id="details-count" class="hint">0 characters</span></div>
             </div>
           </div>
 
@@ -148,7 +149,10 @@
             </div>
           </div>
 
-          <button type="submit" id="btn-submit-issue" class="submit-btn">Record issue</button>
+          <div class="form-actions">
+            <button type="submit" id="btn-submit-issue" class="submit-btn">Record issue</button>
+            <button type="button" class="btn-secondary" onclick="resetIssueForm()">Clear</button>
+          </div>
           <div class="confirm-msg" id="confirm-msg">✓ Issue successfully recorded and saved to the SQLite register.</div>
         </form>
       </section>
@@ -158,10 +162,28 @@
   <!-- ============ DASHBOARD & REGISTER VIEW (PROTECTED) ============ -->
   <section id="view-dash" class="view" aria-label="Register and Analytics Dashboard">
     <div class="stat-strip">
-      <div class="card stat"><div class="num" id="stat-total">—</div><div class="lbl">Total issues logged</div></div>
-      <div class="card stat"><div class="num" id="stat-open">—</div><div class="lbl">Open / in progress</div></div>
-      <div class="card stat accent"><div class="num" id="stat-resolved">—</div><div class="lbl">Resolved</div></div>
-      <div class="card stat"><div class="num" id="stat-topcat">—</div><div class="lbl">Leading category</div></div>
+      <div class="card stat">
+        <div class="stat-top"><span class="stat-icon">📊</span><span class="lbl">Total logged</span></div>
+        <div class="num" id="stat-total">—</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-top"><span class="stat-icon">⏳</span><span class="lbl">Open / in progress</span></div>
+        <div class="stat-num-row">
+          <div class="num" id="stat-open">—</div>
+          <span id="stat-open-pct" class="stat-badge open"></span>
+        </div>
+      </div>
+      <div class="card stat accent">
+        <div class="stat-top"><span class="stat-icon">✅</span><span class="lbl">Resolved issues</span></div>
+        <div class="stat-num-row">
+          <div class="num" id="stat-resolved">—</div>
+          <span id="stat-resolved-pct" class="stat-badge resolved"></span>
+        </div>
+      </div>
+      <div class="card stat">
+        <div class="stat-top"><span class="stat-icon">📌</span><span class="lbl">Leading category</span></div>
+        <div class="num num-sub" id="stat-topcat">—</div>
+      </div>
     </div>
 
     <!-- Overview Row: Category Breakdown + Recently Logged Activity -->
@@ -196,13 +218,22 @@
       </div>
     </div>
 
+    <!-- Issue Register Table Card -->
     <div class="card table-card">
       <div class="table-head">
-        <h3>Central Issue Register</h3>
+        <div class="table-title-group">
+          <h3>Central Issue Register</h3>
+          <div class="quick-filter-pills">
+            <button class="pill-filter active" id="filter-pill-all" onclick="setQuickFilter('all')">All</button>
+            <button class="pill-filter" id="filter-pill-open" onclick="setQuickFilter('open')">Open / Active</button>
+            <button class="pill-filter" id="filter-pill-resolved" onclick="setQuickFilter('resolved')">Resolved</button>
+          </div>
+        </div>
+
         <div class="filters">
-          <input type="text" id="filt-search" placeholder="Search customer, branch, details…" oninput="renderTable()">
-          <select id="filt-category" onchange="renderTable()"><option value="">All categories</option></select>
-          <select id="filt-status" onchange="renderTable()">
+          <input type="text" id="filt-search" placeholder="Search customer, branch, details…" oninput="onSearchInput()">
+          <select id="filt-category" onchange="onFilterChange()"><option value="">All categories</option></select>
+          <select id="filt-status" onchange="onFilterChange()">
             <option value="">All statuses</option>
             <option>Open</option>
             <option>In Progress</option>
@@ -212,26 +243,48 @@
           <button class="export-btn" onclick="exportCsv()">Export CSV</button>
         </div>
       </div>
+
       <div class="table-scroll">
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Date</th>
-              <th>Customer</th>
-              <th>Branch</th>
-              <th>Category</th>
+              <th onclick="toggleSort('id')" class="th-sortable" title="Click to sort by ID">ID <span id="sort-id" class="sort-icon">⇅</span></th>
+              <th onclick="toggleSort('dateReceived')" class="th-sortable" title="Click to sort by Date">Date <span id="sort-dateReceived" class="sort-icon">⇅</span></th>
+              <th onclick="toggleSort('customerName')" class="th-sortable" title="Click to sort by Customer">Customer <span id="sort-customerName" class="sort-icon">⇅</span></th>
+              <th onclick="toggleSort('branch')" class="th-sortable" title="Click to sort by Branch">Branch <span id="sort-branch" class="sort-icon">⇅</span></th>
+              <th onclick="toggleSort('category')" class="th-sortable" title="Click to sort by Category">Category <span id="sort-category" class="sort-icon">⇅</span></th>
               <th>Details</th>
-              <th>Status</th>
+              <th onclick="toggleSort('status')" class="th-sortable" title="Click to sort by Status">Status <span id="sort-status" class="sort-icon">⇅</span></th>
               <th>Resolution</th>
+              <th style="text-align:center;">Action</th>
             </tr>
           </thead>
           <tbody id="table-body">
-            <tr><td colspan="8" style="text-align:center;padding:24px;color:var(--ink-soft);">Loading register records from SQLite...</td></tr>
+            <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--ink-soft);">Loading register records from SQLite...</td></tr>
           </tbody>
         </table>
       </div>
+
       <div class="empty-note" id="table-empty" style="display:none;padding:18px;text-align:center;">No issues match the selected filters.</div>
+
+      <!-- Table Pagination Bar -->
+      <div class="table-pagination">
+        <div class="pagination-info" id="pagination-info">Showing 0 of 0 records</div>
+        <div class="pagination-controls">
+          <button id="btn-prev-page" class="page-btn" onclick="changePage(-1)" disabled>← Prev</button>
+          <span id="pagination-pages" class="page-numbers"></span>
+          <button id="btn-next-page" class="page-btn" onclick="changePage(1)" disabled>Next →</button>
+        </div>
+        <div class="pagination-per-page">
+          <label for="per-page-select">Show:</label>
+          <select id="per-page-select" onchange="changePageSize(this.value)">
+            <option value="10" selected>10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -269,6 +322,95 @@
     </form>
   </div>
 </div>
+
+<!-- ============ ISSUE DETAIL & RESOLUTION MODAL ============ -->
+<div id="issue-detail-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
+  <div class="modal-card detail-modal-card">
+    <button class="modal-close-btn" onclick="closeIssueModal()" title="Close dialog">×</button>
+    <div class="detail-header">
+      <div class="detail-header-top">
+        <span class="id-badge" id="modal-issue-id">PN-000000</span>
+        <span class="chip" id="modal-status-badge">Open</span>
+      </div>
+      <h2 id="detail-modal-title" class="serif">Incident Details &amp; Resolution</h2>
+      <p class="small muted" id="modal-meta-line">—</p>
+    </div>
+
+    <div class="detail-grid-info">
+      <div class="detail-info-item">
+        <span class="info-label">Customer Name</span>
+        <span class="info-val" id="modal-cust-name">—</span>
+      </div>
+      <div class="detail-info-item">
+        <span class="info-label">Account Number</span>
+        <span class="info-val" id="modal-acc-num">—</span>
+      </div>
+      <div class="detail-info-item">
+        <span class="info-label">Customer Type</span>
+        <span class="info-val" id="modal-cust-type">—</span>
+      </div>
+      <div class="detail-info-item">
+        <span class="info-label">Branch</span>
+        <span class="info-val" id="modal-branch">—</span>
+      </div>
+      <div class="detail-info-item">
+        <span class="info-label">Channel</span>
+        <span class="info-val" id="modal-channel">—</span>
+      </div>
+      <div class="detail-info-item">
+        <span class="info-label">Logged By</span>
+        <span class="info-val" id="modal-logged-by">—</span>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <span class="info-label">Category &amp; Classification</span>
+      <div class="category-display">
+        <span id="modal-category" class="category-name">—</span>
+        <span class="type-pill" id="modal-type-pill">—</span>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <span class="info-label">Customer Reported Issue</span>
+      <div class="detail-text-box" id="modal-details-text">—</div>
+    </div>
+
+    <form id="modal-resolution-form" onsubmit="event.preventDefault(); saveModalResolution();">
+      <div class="detail-section resolution-editor">
+        <span class="info-label">Resolution &amp; Lifecycle Management</span>
+        <div class="field-row" style="margin-top:8px;">
+          <div class="field">
+            <label for="modal-status-select">Update Status</label>
+            <select id="modal-status-select" class="status-select">
+              <option value="Open">Open</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Not Confirmed">Not Confirmed</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="modal-res-date">Resolution Date</label>
+            <input type="date" id="modal-res-date">
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:10px;">
+          <label for="modal-solution-text">Resolution / Guidance Given to Customer</label>
+          <textarea id="modal-solution-text" placeholder="Record what was done or instructions provided to resolve the incident..."></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="submit" id="btn-save-modal" class="submit-btn">Save Changes</button>
+          <button type="button" class="btn-secondary" onclick="closeIssueModal()">Close</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Floating Toast Notifications Container -->
+<div id="toast-container" class="toast-container" aria-live="polite"></div>
 
 <script src="app.js"></script>
 </body>
