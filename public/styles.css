@@ -594,21 +594,26 @@ footer {
   opacity: 1;
 }
 
+.modal-card,
 .login-card {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
+  position: relative;
+  transform: translateY(12px);
+  transition: transform 0.2s ease-out;
+}
+
+.modal-overlay.active .modal-card,
+.modal-overlay.active .login-card {
+  transform: translateY(0);
+}
+
+.login-card {
   max-width: 420px;
   width: 100%;
   padding: 32px 28px;
-  transform: translateY(12px);
-  transition: transform 0.2s ease-out;
-  position: relative;
-}
-
-.modal-overlay.active .login-card {
-  transform: translateY(0);
 }
 
 .modal-close-btn {
@@ -932,11 +937,16 @@ footer {
 
 /* ==================== ISSUE DETAIL MODAL ==================== */
 .detail-modal-card {
-  max-width: 620px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 20px 45px rgba(18, 35, 56, 0.28), 0 2px 6px rgba(18, 35, 56, 0.12);
+  max-width: 640px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-  padding: 28px;
+  padding: 28px 32px;
+  position: relative;
 }
 
 .detail-header-top {
