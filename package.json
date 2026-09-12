@@ -1,0 +1,14 @@
+{
+  "name": "primenet-issue-desk",
+  "version": "1.0.0",
+  "description": "PrimeNet Issue Desk with SQLite authentication and analysis dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2"
+  }
+}

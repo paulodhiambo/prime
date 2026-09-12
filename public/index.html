@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PrimeNet Issue Desk — Banking Query &amp; Incident Desk</title>
+  <meta name="description" content="Centralized query, dispute, and incident recording system for PrimeNet Internet Banking with SQLite-backed analytics and branch register.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div class="app">
+  <!-- Masthead -->
+  <header class="masthead">
+    <div class="masthead-title">
+      <div class="brand-mark">P</div>
+      <div>
+        <h1>PrimeNet Issue Desk</h1>
+        <div class="tag">Logging &amp; analysis for internet banking queries and complaints</div>
+      </div>
+    </div>
+
+    <div class="masthead-controls">
+      <!-- Dynamic Auth Status Badge -->
+      <div id="auth-status-container" class="auth-status-badge">
+        <span class="auth-dot"></span>
+        <span id="auth-status-text">Public Entry Mode</span>
+        <button id="auth-action-btn" class="auth-btn" onclick="openLoginModal('dash')">Staff Login</button>
+      </div>
+
+      <!-- Main Navigation -->
+      <nav class="nav" aria-label="Main navigation">
+        <button id="nav-log" class="active" onclick="switchView('log')">
+          Log an issue
+        </button>
+        <button id="nav-dash" onclick="switchView('dash')">
+          <span>Register &amp; analysis</span>
+          <span id="nav-lock-badge" class="lock-icon" title="Staff authentication required">🔒</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ============ LOG VIEW ============ -->
+  <main id="view-log" class="view active">
+    <div class="log-grid">
+      <!-- Issue Record Form -->
+      <section class="card form-card" aria-labelledby="form-heading">
+        <h2 id="form-heading">Record a PrimeNet issue</h2>
+        <p class="lede">Fill this in as soon as a query or complaint comes in, from any branch or channel. It lands straight in the shared central SQLite register.</p>
+
+        <form id="issue-form" onsubmit="event.preventDefault(); submitIssue();">
+          <div class="field-row">
+            <div class="field">
+              <label for="f-date">Date received</label>
+              <input type="date" id="f-date" required>
+            </div>
+            <div class="field">
+              <label for="f-channel">Channel</label>
+              <select id="f-channel">
+                <option>Branch</option>
+                <option>Email</option>
+                <option>Phone Call</option>
+                <option>Call Centre</option>
+                <option>In Person</option>
+                <option>Mobile App</option>
+                <option>Website</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="f-custtype">Customer type</label>
+              <select id="f-custtype">
+                <option>Individual</option>
+                <option>Collective</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="f-custname">Customer / company name</label>
+              <input type="text" id="f-custname" placeholder="e.g. Jane Wambui" required>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="f-account">Account number <span class="hint">(optional)</span></label>
+              <input type="text" id="f-account" placeholder="e.g. 3000212824">
+            </div>
+            <div class="field">
+              <label for="f-branch">Branch</label>
+              <input type="text" id="f-branch" list="branch-list" placeholder="e.g. Riverside" required>
+              <datalist id="branch-list"></datalist>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field full">
+              <label for="f-category">Issue category</label>
+              <select id="f-category" onchange="updateTypePreview()"></select>
+              <div class="type-preview">Grouped under <span class="type-pill" id="type-pill">—</span></div>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field full">
+              <label for="f-details">Issue details</label>
+              <textarea id="f-details" placeholder="Describe what the customer reported, in their own words if possible" required></textarea>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="f-status">Status</label>
+              <select id="f-status">
+                <option>Open</option>
+                <option>In Progress</option>
+                <option>Not Confirmed</option>
+                <option>Resolved</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="f-loggedby">Logged by</label>
+              <input type="text" id="f-loggedby" placeholder="Your name or staff ID">
+            </div>
+          </div>
+
+          <div class="field-row" id="resolution-row" style="display:none;">
+            <div class="field full">
+              <label for="f-solution">Resolution / response given</label>
+              <textarea id="f-solution" placeholder="What was done, or the guidance given to the customer"></textarea>
+            </div>
+          </div>
+
+          <button type="submit" id="btn-submit-issue" class="submit-btn">Record issue</button>
+          <div class="confirm-msg" id="confirm-msg">✓ Issue successfully recorded and saved to the SQLite register.</div>
+        </form>
+      </section>
+
+      <!-- Recently Logged Ticker -->
+      <aside class="card recent-card" aria-label="Recently logged issues">
+        <h3>Recently logged <span class="small muted" id="recent-count"></span></h3>
+        <div id="recent-list">
+          <div class="empty-note">Loading recent issues...</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- ============ DASHBOARD & REGISTER VIEW ============ -->
+  <section id="view-dash" class="view" aria-label="Register and Analytics Dashboard">
+    <div class="stat-strip">
+      <div class="card stat"><div class="num" id="stat-total">—</div><div class="lbl">Total issues logged</div></div>
+      <div class="card stat"><div class="num" id="stat-open">—</div><div class="lbl">Open / in progress</div></div>
+      <div class="card stat accent"><div class="num" id="stat-resolved">—</div><div class="lbl">Resolved</div></div>
+      <div class="card stat"><div class="num" id="stat-topcat">—</div><div class="lbl">Leading category</div></div>
+    </div>
+
+    <div class="chart-row">
+      <div class="card chart-card">
+        <h3>Issues by category</h3>
+        <div class="chart-wrap tall"><canvas id="chart-category"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Status split</h3>
+        <div class="chart-wrap tall"><canvas id="chart-status"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-row">
+      <div class="card chart-card">
+        <h3>Volume by month</h3>
+        <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Issues by branch (top 10)</h3>
+        <div class="chart-wrap"><canvas id="chart-branch"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card table-card">
+      <div class="table-head">
+        <h3>Central Issue Register</h3>
+        <div class="filters">
+          <input type="text" id="filt-search" placeholder="Search customer, branch, details…" oninput="renderTable()">
+          <select id="filt-category" onchange="renderTable()"><option value="">All categories</option></select>
+          <select id="filt-status" onchange="renderTable()">
+            <option value="">All statuses</option>
+            <option>Open</option>
+            <option>In Progress</option>
+            <option>Not Confirmed</option>
+            <option>Resolved</option>
+          </select>
+          <button class="export-btn" onclick="exportCsv()">Export CSV</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Date</th>
+              <th>Customer</th>
+              <th>Branch</th>
+              <th>Category</th>
+              <th>Details</th>
+              <th>Status</th>
+              <th>Resolution</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr><td colspan="8" style="text-align:center;padding:24px;color:var(--ink-soft);">Loading register records from SQLite...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-note" id="table-empty" style="display:none;padding:18px;text-align:center;">No issues match the selected filters.</div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div>PrimeNet Issue Desk — Connected to centralized SQLite database. Data is synchronized across all banking branches.</div>
+    <div>System version 1.0 · Protected staff portal</div>
+  </footer>
+</div>
+
+<!-- ============ AUTHENTICATION MODAL ============ -->
+<div id="login-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="login-card">
+    <button class="modal-close-btn" onclick="closeLoginModal()" title="Close dialog">×</button>
+    <div class="login-header">
+      <div class="lock-badge">🔒</div>
+      <h2 id="login-title">Staff Authentication</h2>
+      <p>The Register &amp; Analysis dashboard contains sensitive account metrics and incident history. Please sign in to continue.</p>
+    </div>
+
+    <div id="login-error" class="login-error"></div>
+
+    <form id="login-form" class="login-form" onsubmit="event.preventDefault(); submitLogin();">
+      <div class="field">
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" placeholder="e.g. admin or analyst" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" required>
+      </div>
+      <button type="submit" id="login-submit-btn" class="login-btn">
+        <span id="login-btn-text">Sign in to Access Register</span>
+      </button>
+    </form>
+
+    <div class="quick-creds">
+      <div class="quick-creds-title">
+        <span>Quick-fill Demo Credentials</span>
+        <span style="font-size:10px;font-weight:normal;opacity:0.8;">Click to test</span>
+      </div>
+      <div class="quick-creds-buttons">
+        <button type="button" class="quick-btn" onclick="quickFillCreds('admin', 'admin123')">
+          <strong>Admin</strong>
+          <span class="btn-sub">admin / admin123</span>
+        </button>
+        <button type="button" class="quick-btn" onclick="quickFillCreds('analyst', 'prime2026')">
+          <strong>Analyst</strong>
+          <span class="btn-sub">analyst / prime2026</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
