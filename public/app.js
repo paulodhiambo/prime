@@ -45,9 +45,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check login state first
   await checkAuth();
 
-  // Load recent issues for logger
-  await loadRecentIssues();
-
   // Escape key closes modal
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeLoginModal();
@@ -206,18 +203,20 @@ async function switchView(viewName) {
     document.getElementById('view-dash').classList.remove('active');
     document.getElementById('nav-log').classList.add('active');
     document.getElementById('nav-dash').classList.remove('active');
-    await loadRecentIssues();
   }
 }
 
 /* ---------------- Data Fetching ---------------- */
 async function loadRecentIssues() {
+  if (!currentUser) return;
   try {
     const res = await fetch('/api/issues/recent');
+    if (res.status === 401) return;
     if (!res.ok) throw new Error('Failed to fetch recent issues');
     const data = await res.json();
 
     const list = document.getElementById('recent-list');
+    if (!list) return;
     document.getElementById('recent-count').textContent = data.total ? `(${data.total} total)` : '';
     
     if (!data.issues || data.issues.length === 0) {
@@ -234,11 +233,6 @@ async function loadRecentIssues() {
         <div class="cat">${escapeHtml(i.category)} · ${escapeHtml(i.branch)} · ${escapeHtml(i.dateReceived)}</div>
       </div>
     `).join('');
-
-    // Update branch suggestions
-    const branchList = document.getElementById('branch-list');
-    const branches = [...new Set(data.issues.map(i => i.branch).filter(Boolean))].sort();
-    branchList.innerHTML = branches.map(b => `<option value="${escapeHtml(b)}">`).join('');
   } catch (err) {
     console.error('Recent issues error:', err);
   }
@@ -246,6 +240,9 @@ async function loadRecentIssues() {
 
 async function loadDashboardData() {
   try {
+    // Load recent issues ticker inside the protected dashboard
+    await loadRecentIssues();
+
     // Fetch full issues register
     const issuesRes = await fetch('/api/issues');
     if (issuesRes.status === 401) {
@@ -336,11 +333,8 @@ async function submitIssue() {
     msg.style.display = 'block';
     setTimeout(() => { msg.style.display = 'none'; }, 3500);
 
-    // Refresh Recent list
-    await loadRecentIssues();
-
-    // If currently on dashboard, refresh dashboard
-    if (document.getElementById('view-dash').classList.contains('active')) {
+    // Refresh protected dashboard data if authenticated and on dashboard
+    if (currentUser && document.getElementById('view-dash').classList.contains('active')) {
       await loadDashboardData();
     }
   } catch (err) {

@@ -210,6 +210,11 @@ h1, h2, h3, .serif {
 .small { font-size: 12.5px; }
 
 /* ---------- Log Issue view ---------- */
+.log-container {
+  max-width: 780px;
+  margin: 0 auto;
+}
+
 .log-grid {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
@@ -414,6 +419,34 @@ textarea {
 }
 
 .stat.accent .num { color: var(--gold); }
+
+.dash-overview-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 860px) {
+  .dash-overview-row { grid-template-columns: 1fr; }
+}
+
+.recent-list-scroll {
+  max-height: 270px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.chart-row-three {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr 1.15fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 960px) {
+  .chart-row-three { grid-template-columns: 1fr; }
+}
 
 .chart-row {
   display: grid;

@@ -47,11 +47,11 @@
 
   <!-- ============ LOG VIEW ============ -->
   <main id="view-log" class="view active">
-    <div class="log-grid">
+    <div class="log-container">
       <!-- Issue Record Form -->
       <section class="card form-card" aria-labelledby="form-heading">
         <h2 id="form-heading">Record a PrimeNet issue</h2>
-        <p class="lede">Fill this in as soon as a query or complaint comes in, from any branch or channel. It lands straight in the shared central SQLite register.</p>
+        <p class="lede">Fill this in as soon as a query or complaint comes in from any branch or channel. It lands straight in the protected central SQLite register.</p>
 
         <form id="issue-form" onsubmit="event.preventDefault(); submitIssue();">
           <div class="field-row">
@@ -95,7 +95,18 @@
             <div class="field">
               <label for="f-branch">Branch</label>
               <input type="text" id="f-branch" list="branch-list" placeholder="e.g. Riverside" required>
-              <datalist id="branch-list"></datalist>
+              <datalist id="branch-list">
+                <option value="Riverside">
+                <option value="Westlands">
+                <option value="Upper Hill">
+                <option value="CBD">
+                <option value="Mombasa">
+                <option value="Kisumu">
+                <option value="Karen">
+                <option value="Industrial Area">
+                <option value="Nakuru">
+                <option value="Eldoret">
+              </datalist>
             </div>
           </div>
 
@@ -141,18 +152,10 @@
           <div class="confirm-msg" id="confirm-msg">✓ Issue successfully recorded and saved to the SQLite register.</div>
         </form>
       </section>
-
-      <!-- Recently Logged Ticker -->
-      <aside class="card recent-card" aria-label="Recently logged issues">
-        <h3>Recently logged <span class="small muted" id="recent-count"></span></h3>
-        <div id="recent-list">
-          <div class="empty-note">Loading recent issues...</div>
-        </div>
-      </aside>
     </div>
   </main>
 
-  <!-- ============ DASHBOARD & REGISTER VIEW ============ -->
+  <!-- ============ DASHBOARD & REGISTER VIEW (PROTECTED) ============ -->
   <section id="view-dash" class="view" aria-label="Register and Analytics Dashboard">
     <div class="stat-strip">
       <div class="card stat"><div class="num" id="stat-total">—</div><div class="lbl">Total issues logged</div></div>
@@ -161,18 +164,28 @@
       <div class="card stat"><div class="num" id="stat-topcat">—</div><div class="lbl">Leading category</div></div>
     </div>
 
-    <div class="chart-row">
-      <div class="card chart-card">
+    <!-- Overview Row: Category Breakdown + Recently Logged Activity -->
+    <div class="dash-overview-row">
+      <div class="card chart-card flex-main">
         <h3>Issues by category</h3>
         <div class="chart-wrap tall"><canvas id="chart-category"></canvas></div>
       </div>
-      <div class="card chart-card">
-        <h3>Status split</h3>
-        <div class="chart-wrap tall"><canvas id="chart-status"></canvas></div>
-      </div>
+
+      <!-- Recently Logged Ticker (Protected in Analysis Window) -->
+      <aside class="card recent-card flex-side" aria-label="Recently logged issues">
+        <h3>Recently logged <span class="small muted" id="recent-count"></span></h3>
+        <div id="recent-list" class="recent-list-scroll">
+          <div class="empty-note">Loading recent issues...</div>
+        </div>
+      </aside>
     </div>
 
-    <div class="chart-row">
+    <!-- Secondary Charts Row -->
+    <div class="chart-row-three">
+      <div class="card chart-card">
+        <h3>Status split</h3>
+        <div class="chart-wrap"><canvas id="chart-status"></canvas></div>
+      </div>
       <div class="card chart-card">
         <h3>Volume by month</h3>
         <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>

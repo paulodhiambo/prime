@@ -518,8 +518,8 @@ app.post('/api/issues', (req, res) => {
   }
 });
 
-// Recent issues ticker for logging view
-app.get('/api/issues/recent', (req, res) => {
+// Protected: Recent issues ticker for analysis dashboard
+app.get('/api/issues/recent', requireAuth, (req, res) => {
   try {
     const rows = db.prepare(`
       SELECT id, date_received, customer_name, branch, category, status, created_at
